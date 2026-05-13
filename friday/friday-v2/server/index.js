@@ -66,6 +66,30 @@ function parseApplications(careerOpsPath) {
   return apps
 }
 
+const TITLE_TRANSLATIONS = {
+  // Spanish
+  "Resumen del Rol":        "Role Summary",
+  "Match con CV":           "CV Match",
+  "Nivel y Estrategia":     "Level and Strategy",
+  "Comp y Demanda":         "Compensation",
+  "Compensación y Demanda": "Compensation",
+  "Plan de Personalización":"Personalisation Plan",
+  "Plan de Entrevistas":    "Interview Plan",
+  "Plan de Entrevista":     "Interview Plan",
+  "Legitimidad del Anuncio":"Posting Legitimacy",
+  // Portuguese
+  "Resumo da Vaga":         "Role Summary",
+  "Match com CV":           "CV Match",
+  "Nível e Estratégia":     "Level and Strategy",
+  "Remuneração e Demanda":  "Compensation",
+  "Plano de Personalização":"Personalisation Plan",
+  "Plano de Entrevistas":   "Interview Plan",
+}
+
+function translateTitle(title) {
+  return TITLE_TRANSLATIONS[title] ?? title
+}
+
 function parseReport(reportPath) {
   try {
     const content = fs.readFileSync(reportPath, "utf8")
@@ -77,11 +101,11 @@ function parseReport(reportPath) {
     const archetypeMatch = content.match(/\*\*Archetype:\*\*\s*(.+)/)
     const pdfMatch     = content.match(/\*\*PDF:\*\*\s*(.+)/)
 
-    // Extract sections A-F
+    // Extract sections A-H
     const sections = {}
-    const sectionMatches = content.matchAll(/## ([A-F])\) (.+?)\n([\s\S]+?)(?=\n## [A-F]\)|$)/g)
+    const sectionMatches = content.matchAll(/## ([A-H])\) (.+?)\n([\s\S]+?)(?=\n## [A-H]\)|$)/g)
     for (const m of sectionMatches) {
-      sections[m[1]] = { title: m[2].trim(), content: m[3].trim() }
+      sections[m[1]] = { title: translateTitle(m[2].trim()), content: m[3].trim() }
     }
 
     // Extract keywords

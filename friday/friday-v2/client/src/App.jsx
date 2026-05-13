@@ -355,10 +355,10 @@ export default function App() {
                   { label: "Interview", value: statusCounts["interview"] || 0 },
                   { label: "Avg Score", value: stats.avgScore ? `${stats.avgScore}/5` : "—" },
                 ].map(({ label, value }) => (
-                  <div key={label} className="bg-stone-50 rounded-xl p-4 border border-stone-100">
+                  <div key={label} className="bg-stone-50 rounded-xl p-4 border border-stone-100 flex flex-col justify-between min-h-[72px]">
                     <div className="text-2xl font-bold text-stone-900"
                       style={{ fontFamily: "Playfair Display" }}>{value}</div>
-                    <div className="text-xs text-stone-400 mt-0.5">{label}</div>
+                    <div className="text-xs text-stone-400 mt-1">{label}</div>
                   </div>
                 ))}
               </div>
@@ -413,28 +413,34 @@ export default function App() {
                           : "border-stone-150 bg-white hover:border-stone-300"
                       }`}
                       style={{ borderColor: selectedApp?.number === app.number ? "#A8A29E" : "#F0EDEC" }}>
-                      <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-3">
                         <GradeBadge score={app.score} />
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="font-medium text-stone-900 text-sm truncate">{app.role}</span>
-                            <span className="text-stone-400 text-sm flex-shrink-0">{app.company}</span>
+                          {/* Row 1: role (truncates) + company (always visible) */}
+                          <div className="flex items-baseline gap-2 mb-1.5">
+                            <span className="font-medium text-stone-900 text-sm truncate min-w-0">{app.role}</span>
+                            <span className="text-stone-400 text-sm flex-shrink-0 whitespace-nowrap">{app.company}</span>
                           </div>
-                          <div className="flex items-center gap-3">
-                            <StatusPill status={app.status} />
-                            <span className="text-stone-300 text-xs">{app.date}</span>
+                          {/* Row 2: status pill + date + score bar on same line */}
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="flex-shrink-0"><StatusPill status={app.status} /></div>
+                            <span className="text-stone-300 text-xs flex-shrink-0">{app.date}</span>
                             {app.hasPDF && (
-                              <span className="text-xs text-emerald-500 flex items-center gap-0.5">
+                              <span className="text-xs text-emerald-500 flex items-center gap-0.5 flex-shrink-0">
                                 <FileText size={10} />PDF
                               </span>
                             )}
+                            {app.score && (
+                              <div className="flex-1 min-w-0 ml-1">
+                                <ScoreBar score={app.score} />
+                              </div>
+                            )}
                           </div>
                         </div>
-                        <ChevronRight size={16} className={`text-stone-300 transition-transform ${
+                        <ChevronRight size={16} className={`text-stone-300 flex-shrink-0 transition-transform ${
                           selectedApp?.number === app.number ? "rotate-90" : ""
                         }`} />
                       </div>
-                      {app.score && <div className="mt-2"><ScoreBar score={app.score} /></div>}
                     </motion.div>
                   ))}
                 </AnimatePresence>
