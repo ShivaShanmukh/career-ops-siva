@@ -45,3 +45,9 @@ bun.lock
 .claude/memory/
 career-dashboard
 package-lock.json
+
+# Friday visual dashboard
+friday/client/node_modules
+friday/server/node_modules
+friday/friday-v2/client/node_modules
+friday/friday-v2/server/node_modules
