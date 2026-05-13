@@ -9,7 +9,6 @@ import {
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
 const API = "/api"
 
-// Career-Ops canonical states mapped to display
 const STATUSES = [
   { id: "evaluated", label: "Evaluated",  color: "#92400E", bg: "#FEF3C7", icon: Clock },
   { id: "applied",   label: "Applied",    color: "#1E40AF", bg: "#DBEAFE", icon: FileText },
@@ -39,12 +38,12 @@ const GRADE_STYLE = {
   "?": "bg-stone-100 text-stone-500 border-stone-200",
 }
 
-// ─── COMPONENTS ───────────────────────────────────────────────────────────────
+// ─── SHARED COMPONENTS ────────────────────────────────────────────────────────
 
-function GradeBadge({ score }) {
-  const grade = scoreToGrade(score)
+function GradeBadge({ score, grade: gradeProp }) {
+  const grade = gradeProp || scoreToGrade(score)
   return (
-    <span className={`inline-flex items-center justify-center w-9 h-9 rounded-full text-sm font-bold border flex-shrink-0 ${GRADE_STYLE[grade]}`}>
+    <span className={`inline-flex items-center justify-center w-9 h-9 rounded-full text-sm font-bold border flex-shrink-0 ${GRADE_STYLE[grade] || GRADE_STYLE["?"]}`}>
       {grade}
     </span>
   )
@@ -54,17 +53,17 @@ function StatusPill({ status }) {
   const s = STATUSES.find(x => x.id === status?.toLowerCase()) || STATUSES[0]
   return (
     <span style={{ color: s.color, background: s.bg }}
-      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium">
+      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap">
       <s.icon size={10} />
       {s.label}
     </span>
   )
 }
 
-function ScoreBar({ score }) {
+function ScoreBar({ score, max = 5 }) {
   if (!score) return null
-  const pct = (score / 5) * 100
-  const color = score >= 4 ? "#10B981" : score >= 3 ? "#F59E0B" : "#EF4444"
+  const pct   = (score / max) * 100
+  const color = pct >= 80 ? "#10B981" : pct >= 60 ? "#F59E0B" : "#EF4444"
   return (
     <div className="flex items-center gap-2">
       <div className="flex-1 h-1 bg-stone-100 rounded-full overflow-hidden">
@@ -72,14 +71,334 @@ function ScoreBar({ score }) {
           transition={{ duration: 0.6, ease: "easeOut" }}
           style={{ background: color }} className="h-full rounded-full" />
       </div>
-      <span className="text-xs font-mono text-stone-400 w-8">{score}/5</span>
+      <span className="text-xs font-mono text-stone-400 flex-shrink-0 w-10 text-right">
+        {max === 100 ? `${score}` : `${score}/5`}
+      </span>
     </div>
   )
 }
 
+// ─── EVALUATE BAR ─────────────────────────────────────────────────────────────
+
+function EvaluateBar({ onEvaluate, evaluating, error }) {
+  const [url, setUrl] = useState("")
+
+  function submit() {
+    const trimmed = url.trim()
+    if (trimmed && !evaluating) onEvaluate(trimmed)
+  }
+
+  return (
+    <div className="bg-stone-950 text-white border-b border-stone-800">
+      <div className="max-w-5xl mx-auto px-8 py-3">
+        <div className="flex gap-2 items-center">
+          <TrendingUp size={15} className="text-stone-400 flex-shrink-0" />
+          <input
+            value={url}
+            onChange={e => setUrl(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && submit()}
+            placeholder="Paste a job URL to evaluate with Claude..."
+            className="flex-1 bg-transparent text-sm text-white placeholder-stone-500 focus:outline-none min-w-0"
+          />
+          <button
+            onClick={submit}
+            disabled={evaluating || !url.trim()}
+            className="flex-shrink-0 px-4 py-1.5 bg-white text-stone-900 text-sm font-medium rounded-lg hover:bg-stone-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+          >
+            {evaluating
+              ? <><RefreshCw size={12} className="animate-spin" />Evaluating...</>
+              : "Evaluate"
+            }
+          </button>
+        </div>
+        {evaluating && (
+          <p className="text-stone-500 text-xs mt-2 pl-6">
+            Claude is reading the job description and tailoring your CV. This takes about 15 seconds.
+          </p>
+        )}
+        {error && !evaluating && (
+          <p className="text-red-400 text-xs mt-2 pl-6">{error}</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── EVALUATION PANEL ────────────────────────────────────────────────────────
+
+function EvaluationPanel({
+  evaluation,
+  editedSummary, setEditedSummary,
+  editedBullets, setEditedBullets,
+  editedCoverNote, setEditedCoverNote,
+  onClose,
+}) {
+  const [activeTab, setActiveTab] = useState("overview")
+  const [flash, setFlash]         = useState("")
+
+  const grade      = evaluation.grade || "?"
+  const gradeStyle = GRADE_STYLE[grade] || GRADE_STYLE["?"]
+  const scorePct   = Math.round((evaluation.score || 0))
+  const scoreColor = scorePct >= 70 ? "#10B981" : scorePct >= 50 ? "#F59E0B" : "#EF4444"
+
+  function copy(text, key) {
+    navigator.clipboard.writeText(text).then(() => {
+      setFlash(key)
+      setTimeout(() => setFlash(""), 2000)
+    })
+  }
+
+  function copyAll() {
+    const lines = [
+      "PROFESSIONAL SUMMARY",
+      "",
+      editedSummary,
+      "",
+      "KEY ACHIEVEMENTS",
+      "",
+      ...editedBullets.map((b, i) => `${i + 1}. ${b}`),
+    ]
+    copy(lines.join("\n"), "cv")
+  }
+
+  const tabs = [
+    ["overview",  "Overview"],
+    ["cv",        "Tailored CV"],
+    ["cover",     "Cover Note"],
+    ["keywords",  "Keywords"],
+  ]
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: 48 }} animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: 48 }} transition={{ duration: 0.2, ease: "easeOut" }}
+      className="fixed right-0 top-0 h-full w-[560px] bg-white border-l shadow-2xl flex flex-col z-50"
+      style={{ borderColor: "#E7E5E4" }}
+    >
+      {/* Header */}
+      <div className="px-7 py-5 border-b border-stone-100 flex-shrink-0">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3 min-w-0 flex-1">
+            <GradeBadge grade={grade} />
+            <div className="min-w-0 flex-1">
+              <h2 className="font-semibold text-stone-900 leading-tight truncate"
+                style={{ fontFamily: "Playfair Display" }}>
+                {evaluation.role}
+              </h2>
+              <p className="text-stone-400 text-sm mt-0.5 truncate">{evaluation.company}</p>
+            </div>
+          </div>
+          <button onClick={onClose}
+            className="text-stone-300 hover:text-stone-600 transition-colors p-1 -mr-1 flex-shrink-0">
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Score bar */}
+        <div className="mt-3 flex items-center gap-2">
+          <div className="flex-1 h-1.5 bg-stone-100 rounded-full overflow-hidden">
+            <motion.div
+              initial={{ width: 0 }} animate={{ width: `${scorePct}%` }}
+              transition={{ duration: 0.6, ease: "easeOut" }}
+              style={{ background: scoreColor }} className="h-full rounded-full"
+            />
+          </div>
+          <span className="text-xs font-mono text-stone-400 flex-shrink-0 w-14 text-right">
+            {evaluation.score}/100
+          </span>
+        </div>
+
+        {/* Meta */}
+        <div className="mt-2 flex items-center gap-3 flex-wrap">
+          {evaluation.location && (
+            <span className="text-xs text-stone-400">{evaluation.location}</span>
+          )}
+          {evaluation.salary && (
+            <span className="text-xs text-stone-600 font-medium">{evaluation.salary}</span>
+          )}
+          {evaluation.url && (
+            <a href={evaluation.url} target="_blank" rel="noreferrer"
+              className="ml-auto flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 transition-colors">
+              <ExternalLink size={11} />
+              View posting
+            </a>
+          )}
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex border-b border-stone-100 flex-shrink-0">
+        {tabs.map(([id, label]) => (
+          <button key={id} onClick={() => setActiveTab(id)}
+            className={`flex-1 py-3 text-xs font-medium border-b-2 transition-colors ${
+              activeTab === id
+                ? "border-stone-800 text-stone-800"
+                : "border-transparent text-stone-400 hover:text-stone-600"
+            }`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab content */}
+      <div className="flex-1 overflow-y-auto">
+
+        {/* ── Overview ── */}
+        {activeTab === "overview" && (
+          <div className="px-7 py-5 space-y-5">
+            <div className={`p-4 rounded-xl text-sm flex items-start gap-2 ${
+              evaluation.recommend
+                ? "bg-emerald-50 text-emerald-800"
+                : "bg-red-50 text-red-800"
+            }`}>
+              {evaluation.recommend
+                ? <CheckCircle size={15} className="flex-shrink-0 mt-0.5" />
+                : <XCircle size={15} className="flex-shrink-0 mt-0.5" />
+              }
+              <span>{evaluation.verdict}</span>
+            </div>
+
+            <div>
+              <div className="text-xs font-medium text-stone-400 uppercase tracking-wider mb-2.5">
+                Strengths
+              </div>
+              <ul className="space-y-2">
+                {(evaluation.strengths || []).map((s, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm text-stone-700">
+                    <span className="text-emerald-500 flex-shrink-0 mt-0.5 font-bold">✓</span>
+                    {s}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div>
+              <div className="text-xs font-medium text-stone-400 uppercase tracking-wider mb-2.5">
+                Gaps
+              </div>
+              <ul className="space-y-2">
+                {(evaluation.gaps || []).map((g, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm text-stone-700">
+                    <span className="text-amber-500 flex-shrink-0 mt-0.5">△</span>
+                    {g}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
+
+        {/* ── Tailored CV ── */}
+        {activeTab === "cv" && (
+          <div className="px-7 py-5 space-y-5">
+            <div>
+              <div className="text-xs font-medium text-stone-400 uppercase tracking-wider mb-2">
+                Tailored Summary
+              </div>
+              <textarea
+                value={editedSummary}
+                onChange={e => setEditedSummary(e.target.value)}
+                rows={5}
+                className="w-full text-sm text-stone-700 border border-stone-200 rounded-lg p-3 leading-relaxed focus:outline-none focus:ring-1 focus:ring-stone-400 resize-none"
+              />
+            </div>
+
+            <div>
+              <div className="text-xs font-medium text-stone-400 uppercase tracking-wider mb-2">
+                Tailored Bullets
+              </div>
+              <div className="space-y-2">
+                {editedBullets.map((bullet, i) => (
+                  <div key={i} className="flex items-start gap-2">
+                    <span className="text-stone-300 text-xs mt-2.5 flex-shrink-0">•</span>
+                    <textarea
+                      value={bullet}
+                      onChange={e => {
+                        const next = [...editedBullets]
+                        next[i] = e.target.value
+                        setEditedBullets(next)
+                      }}
+                      rows={2}
+                      className="flex-1 text-sm text-stone-700 border border-stone-200 rounded-lg p-2.5 leading-relaxed focus:outline-none focus:ring-1 focus:ring-stone-400 resize-none"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={copyAll}
+                className="flex-1 py-2.5 text-sm font-medium border border-stone-200 rounded-lg hover:bg-stone-50 transition-colors"
+              >
+                {flash === "cv" ? "Copied!" : "Copy all"}
+              </button>
+              <button
+                onClick={() => { setFlash("drive"); setTimeout(() => setFlash(""), 3000) }}
+                className="flex-1 py-2.5 text-sm font-medium bg-stone-900 text-white rounded-lg hover:bg-stone-700 transition-colors"
+              >
+                {flash === "drive" ? "Saved to Friday — Job Search folder" : "Save to Google Drive"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Cover Note ── */}
+        {activeTab === "cover" && (
+          <div className="px-7 py-5">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-xs font-medium text-stone-400 uppercase tracking-wider">
+                Cover Note
+              </div>
+              <span className="text-xs text-stone-300 tabular-nums">
+                {editedCoverNote.length} chars
+              </span>
+            </div>
+            <textarea
+              value={editedCoverNote}
+              onChange={e => setEditedCoverNote(e.target.value)}
+              rows={20}
+              className="w-full text-sm text-stone-700 border border-stone-200 rounded-lg p-4 leading-relaxed focus:outline-none focus:ring-1 focus:ring-stone-400 resize-none"
+            />
+            <button
+              onClick={() => copy(editedCoverNote, "cover")}
+              className="mt-3 w-full py-2.5 text-sm font-medium border border-stone-200 rounded-lg hover:bg-stone-50 transition-colors"
+            >
+              {flash === "cover" ? "Copied!" : "Copy"}
+            </button>
+          </div>
+        )}
+
+        {/* ── Keywords ── */}
+        {activeTab === "keywords" && (
+          <div className="px-7 py-5">
+            <div className="text-xs font-medium text-stone-400 uppercase tracking-wider mb-3">
+              ATS Keywords
+            </div>
+            <div className="flex flex-wrap gap-2 mb-5">
+              {(evaluation.ats_keywords || []).map((k, i) => (
+                <span key={i}
+                  className="px-3 py-1.5 bg-stone-100 text-stone-700 rounded-full text-sm cursor-pointer hover:bg-stone-200 transition-colors"
+                  onClick={() => copy(k, `kw-${i}`)}>
+                  {flash === `kw-${i}` ? "Copied" : k}
+                </span>
+              ))}
+            </div>
+            <p className="text-xs text-stone-400 leading-relaxed">
+              These should appear naturally in your application. Use them in context across your summary, bullets, and cover note. Click any keyword to copy it.
+            </p>
+          </div>
+        )}
+      </div>
+    </motion.div>
+  )
+}
+
+// ─── REPORT PANEL (career-ops evaluations) ────────────────────────────────────
+
 function ReportPanel({ app, report, onClose, onStatusChange }) {
   const [activeSection, setActiveSection] = useState("B")
-  const sections = report?.sections || {}
+  const sections    = report?.sections || {}
   const sectionKeys = Object.keys(sections)
 
   return (
@@ -106,9 +425,8 @@ function ReportPanel({ app, report, onClose, onStatusChange }) {
           </button>
         </div>
 
-        {report?.score && <ScoreBar score={report.score} />}
+        {report?.score && <div className="mt-3"><ScoreBar score={report.score} max={5} /></div>}
 
-        {/* Status changer */}
         <div className="mt-3 flex flex-wrap gap-1.5">
           {STATUSES.slice(0, 6).map(s => (
             <button key={s.id} onClick={() => onStatusChange(app.number, s.id)}
@@ -124,7 +442,6 @@ function ReportPanel({ app, report, onClose, onStatusChange }) {
         </div>
       </div>
 
-      {/* Report archetype + URL */}
       {(report?.archetype || report?.url) && (
         <div className="px-7 py-3 bg-stone-50 border-b border-stone-100 flex items-center justify-between flex-shrink-0">
           {report?.archetype && (
@@ -140,7 +457,6 @@ function ReportPanel({ app, report, onClose, onStatusChange }) {
         </div>
       )}
 
-      {/* Section tabs */}
       {sectionKeys.length > 0 && (
         <div className="px-7 flex gap-1 border-b border-stone-100 flex-shrink-0 overflow-x-auto">
           {sectionKeys.map(k => (
@@ -156,14 +472,13 @@ function ReportPanel({ app, report, onClose, onStatusChange }) {
         </div>
       )}
 
-      {/* Section content */}
       <div className="flex-1 overflow-y-auto px-7 py-5">
         {sectionKeys.length > 0 && sections[activeSection] ? (
           <div>
             <h3 className="font-semibold text-stone-800 mb-3 text-sm">
               {activeSection}) {sections[activeSection].title}
             </h3>
-            <div className="text-sm text-stone-700 leading-relaxed whitespace-pre-wrap prose-sm">
+            <div className="text-sm text-stone-700 leading-relaxed whitespace-pre-wrap">
               {sections[activeSection].content}
             </div>
           </div>
@@ -180,7 +495,6 @@ function ReportPanel({ app, report, onClose, onStatusChange }) {
           </div>
         )}
 
-        {/* Keywords */}
         {report?.keywords?.length > 0 && (
           <div className="mt-6 pt-5 border-t border-stone-100">
             <div className="text-xs font-medium text-stone-400 uppercase tracking-wider mb-2">
@@ -208,13 +522,21 @@ export default function App() {
   const [loading, setLoading]         = useState(true)
   const [error, setError]             = useState("")
   const [selectedApp, setSelectedApp] = useState(null)
-  const [selectedReport, setSelectedReport] = useState(null)
-  const [reportLoading, setReportLoading]   = useState(false)
-  const [filterStatus, setFilterStatus]     = useState("all")
-  const [tab, setTab]                       = useState("pipeline")
-  const [storyBank, setStoryBank]           = useState("")
-  const [lastRefresh, setLastRefresh]       = useState(null)
-  const [connected, setConnected]           = useState(false)
+  const [selectedReport, setSelectedReport]   = useState(null)
+  const [reportLoading, setReportLoading]     = useState(false)
+  const [filterStatus, setFilterStatus]       = useState("all")
+  const [tab, setTab]                         = useState("pipeline")
+  const [storyBank, setStoryBank]             = useState("")
+  const [lastRefresh, setLastRefresh]         = useState(null)
+  const [connected, setConnected]             = useState(false)
+
+  // Evaluation state
+  const [evaluation, setEvaluation]           = useState(null)
+  const [evaluating, setEvaluating]           = useState(false)
+  const [evalError, setEvalError]             = useState("")
+  const [editedSummary, setEditedSummary]     = useState("")
+  const [editedBullets, setEditedBullets]     = useState([])
+  const [editedCoverNote, setEditedCoverNote] = useState("")
 
   const fetchData = useCallback(async () => {
     try {
@@ -223,15 +545,13 @@ export default function App() {
         fetch(`${API}/stats`),
       ])
       if (!appsRes.ok) throw new Error("Server not running")
-      const appsData  = await appsRes.json()
-      const statsData = await statsRes.json()
-      setApps(appsData.apps || [])
-      setStats(statsData)
+      setApps((await appsRes.json()).apps || [])
+      setStats(await statsRes.json())
       setConnected(true)
       setError("")
       setLastRefresh(new Date())
-    } catch (e) {
-      setError("Cannot connect to Friday server. Make sure it's running on port 3333.")
+    } catch {
+      setError("Cannot connect to Friday server. Make sure it is running on port 3333.")
       setConnected(false)
     } finally {
       setLoading(false)
@@ -240,7 +560,6 @@ export default function App() {
 
   useEffect(() => { fetchData() }, [fetchData])
 
-  // SSE — real-time updates when career-ops writes new files
   useEffect(() => {
     if (!connected) return
     const es = new EventSource(`${API}/watch`)
@@ -249,19 +568,50 @@ export default function App() {
     return () => es.close()
   }, [connected, fetchData])
 
-  // Load story bank when tab switches
   useEffect(() => {
     if (tab !== "stories") return
-    fetch(`${API}/story-bank`)
-      .then(r => r.json())
-      .then(d => setStoryBank(d.content || ""))
-      .catch(() => {})
+    fetch(`${API}/story-bank`).then(r => r.json()).then(d => setStoryBank(d.content || "")).catch(() => {})
   }, [tab])
+
+  // Sync editable fields when a new evaluation arrives
+  useEffect(() => {
+    if (!evaluation) return
+    setEditedSummary(evaluation.tailored_summary || "")
+    setEditedBullets(evaluation.tailored_bullets || [])
+    setEditedCoverNote(evaluation.cover_note || "")
+  }, [evaluation])
+
+  async function handleEvaluate(url) {
+    if (!url || evaluating) return
+    setEvaluating(true)
+    setEvalError("")
+    setEvaluation(null)
+    // Close any open report panel
+    setSelectedApp(null)
+    setSelectedReport(null)
+    try {
+      const res  = await fetch(`${API}/evaluate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setEvalError(data.error || "Evaluation failed"); return }
+      setEvaluation(data)
+      fetchData()
+    } catch {
+      setEvalError("Cannot reach Friday server. Make sure it is running on port 3333.")
+    } finally {
+      setEvaluating(false)
+    }
+  }
 
   async function loadReport(app) {
     if (selectedApp?.number === app.number) {
       setSelectedApp(null); setSelectedReport(null); return
     }
+    // Close any live evaluation panel
+    setEvaluation(null)
     setSelectedApp(app)
     setSelectedReport(null)
     setReportLoading(true)
@@ -296,6 +646,9 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-white" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+
+      {/* Evaluate bar — always at the very top */}
+      <EvaluateBar onEvaluate={handleEvaluate} evaluating={evaluating} error={evalError} />
 
       {/* Header */}
       <header className="border-b border-stone-100 px-8 py-4 sticky top-0 bg-white z-10">
@@ -335,27 +688,26 @@ export default function App() {
 
       <main className="max-w-5xl mx-auto px-8 py-6">
 
-        {/* Error state */}
         {error && (
           <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
             <p className="font-medium mb-1">Friday server not running</p>
-            <p className="text-red-500">In your terminal, run: <code className="bg-red-100 px-1.5 py-0.5 rounded font-mono">cd Documents/career-ops-friday && node server/index.js</code></p>
+            <p className="text-red-500">Run: <code className="bg-red-100 px-1.5 py-0.5 rounded font-mono">node server/index.js</code> from the friday-v2 folder</p>
           </div>
         )}
 
         {/* PIPELINE TAB */}
         {tab === "pipeline" && (
           <>
-            {/* Stats row */}
             {stats && (
               <div className="grid grid-cols-4 gap-4 mb-6">
                 {[
-                  { label: "Total", value: stats.total },
-                  { label: "Applied", value: statusCounts["applied"] || 0 },
+                  { label: "Total",     value: stats.total },
+                  { label: "Applied",   value: statusCounts["applied"]   || 0 },
                   { label: "Interview", value: statusCounts["interview"] || 0 },
                   { label: "Avg Score", value: stats.avgScore ? `${stats.avgScore}/5` : "—" },
                 ].map(({ label, value }) => (
-                  <div key={label} className="bg-stone-50 rounded-xl p-4 border border-stone-100 flex flex-col justify-between min-h-[72px]">
+                  <div key={label}
+                    className="bg-stone-50 rounded-xl p-4 border border-stone-100 flex flex-col justify-between min-h-[72px]">
                     <div className="text-2xl font-bold text-stone-900"
                       style={{ fontFamily: "Playfair Display" }}>{value}</div>
                     <div className="text-xs text-stone-400 mt-1">{label}</div>
@@ -364,7 +716,6 @@ export default function App() {
               </div>
             )}
 
-            {/* Filter pills */}
             <div className="flex gap-2 mb-4 flex-wrap">
               <button onClick={() => setFilterStatus("all")}
                 className={`px-3 py-1 rounded-full text-sm transition-colors ${
@@ -387,7 +738,6 @@ export default function App() {
               ))}
             </div>
 
-            {/* Applications list */}
             {loading ? (
               <div className="text-center py-20 text-stone-300 text-sm">Loading...</div>
             ) : filtered.length === 0 ? (
@@ -395,7 +745,7 @@ export default function App() {
                 <div className="text-stone-200 text-5xl mb-4" style={{ fontFamily: "Playfair Display" }}>◎</div>
                 <p className="text-stone-400 text-sm">
                   {apps.length === 0
-                    ? "No applications yet. Run /career-ops [url] to evaluate a role."
+                    ? "No applications yet. Paste a job URL above to evaluate a role."
                     : "No applications in this stage."}
                 </p>
               </div>
@@ -432,7 +782,7 @@ export default function App() {
                             )}
                             {app.score && (
                               <div className="flex-1 min-w-0 ml-1">
-                                <ScoreBar score={app.score} />
+                                <ScoreBar score={app.score} max={5} />
                               </div>
                             )}
                           </div>
@@ -457,11 +807,9 @@ export default function App() {
               STAR Story Bank
             </h2>
             {storyBank ? (
-              <div className="prose prose-stone max-w-none text-sm">
-                <pre className="whitespace-pre-wrap font-sans text-stone-700 leading-relaxed bg-stone-50 p-6 rounded-xl border border-stone-100">
-                  {storyBank}
-                </pre>
-              </div>
+              <pre className="whitespace-pre-wrap font-sans text-sm text-stone-700 leading-relaxed bg-stone-50 p-6 rounded-xl border border-stone-100">
+                {storyBank}
+              </pre>
             ) : (
               <div className="text-center py-20">
                 <BookOpen size={32} className="text-stone-200 mx-auto mb-3" />
@@ -504,7 +852,20 @@ export default function App() {
         )}
       </main>
 
-      {/* Report panel */}
+      {/* Live evaluation panel */}
+      <AnimatePresence>
+        {evaluation && (
+          <EvaluationPanel
+            evaluation={evaluation}
+            editedSummary={editedSummary}       setEditedSummary={setEditedSummary}
+            editedBullets={editedBullets}       setEditedBullets={setEditedBullets}
+            editedCoverNote={editedCoverNote}   setEditedCoverNote={setEditedCoverNote}
+            onClose={() => { setEvaluation(null); setEvalError("") }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Career-ops report panel */}
       <AnimatePresence>
         {selectedApp && (
           <ReportPanel
