@@ -332,4 +332,4 @@ endorsement.
 
 ## Friday — Visual Dashboard
 
-A browser-based visual interface for Career-Ops. Run friday/start.bat to launch. Reads all career-ops data files in real time.
+A browser-based visual interface for Career-Ops. Run friday/friday-v2/start.bat to launch. Reads all career-ops data files in real time.
